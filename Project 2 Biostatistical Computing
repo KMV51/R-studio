@@ -1,0 +1,100 @@
+library(dplyr)
+library(haven)
+library(gtsummary)
+library(ggplot2)
+
+demo <- read_xpt("Datasets/P_DEMO.xpt")
+bpxo <- read_xpt("Datasets/P_BPXO.xpt")
+bmx <- read_xpt("Datasets/P_BMX.xpt")
+diq <- read_xpt("Datasets/P_DIQ.xpt")
+trigly <- read_xpt("Datasets/P_TRIGLY.xpt")
+
+analysis <- left_join(bmx, demo, by = "SEQN") %>%
+  left_join(diq, by = "SEQN") %>%
+  left_join(trigly, by = "SEQN") %>%
+  left_join(bpxo, by = "SEQN") %>%
+  mutate(
+    gender = factor(RIAGENDR, levels = c(1, 2), labels = c("Male", "Female")),
+    race = factor(RIDRETH1, levels = c(1,2,3,4,5), 
+                  labels = c("Mexican American", "Other Hispanic", "Non-Hispanic White",
+                             "Non-Hispanic Black", "Other Race/Multi")),
+    marital_status = factor(DMDMARTZ,
+                            levels = c(1,2,3,77,99),
+                            labels = c("Married/Living with Partner", "Widowed/Divorced/Separated",
+                                       "Never married", "Refused/Don't Know", "Refused/Don't Know")),
+    education = factor(DMDEDUC2, levels = c(1,2,3,4,5),
+                       labels = c("Less than 9th grade", "9-11th grade", "High school graduate/GED",
+                                  "Some college or AA degree", "College graduate or above")),
+    sysbp = rowMeans(cbind(BPXOSY1, BPXOSY2, BPXOSY3), na.rm = TRUE),
+    diabp = rowMeans(cbind(BPXODI1, BPXODI2, BPXODI3), na.rm = TRUE),
+    taking_insulin = ifelse(DIQ050 == 1, "Yes", NA)
+  ) 
+
+dflist <- list(bmx, demo, diq, trigly, bpxo)
+analysis2 <- Reduce(left_join, dflist)
+
+attr(analysis$race, "label") <- "Race/Ethnicity"
+attr(analysis$marital_status, "label") <- "Marital Status"
+attr(analysis$education, "label") <- "Education"
+attr(analysis$sysbp, "label") <- "Systolic Blood Pressure"
+attr(analysis$diabp, "label") <- "Diastolic Blood Pressure"
+attr(analysis$taking_insulin, "label") <- "Taking Insulin?"
+
+
+t_demo <- tbl_summary(
+  analysis,
+  by = gender,
+  include = c(RIDAGEYR, race, marital_status, education, sysbp, diabp, DID040, LBXTR, taking_insulin),
+  statistic = list(all_continuous() ~ "{mean} ({sd})"),
+  missing_text = "(Missing)"
+) %>%
+  add_overall(last = TRUE) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Gender**") %>%
+  modify_header(label ~ "**Variable**")
+t_demo
+
+gtsummary::as_hux_xlsx(t_demo, file = "output/Table.xlsx")
+
+#Proportion of males and females
+gender_dist <- table(analysis$gender) %>% prop.table()
+print(gender_dist)
+
+final_dataset <- analysis %>% filter(!is.na(BMXBMI))
+# Count the number of observations
+n_obs <- nrow(final_dataset)
+print(paste("Number of observations in the final dataset:", n_obs))
+
+#Average age of males who never married
+avg_age_never_married_male <- analysis %>%
+  filter(gender == "Male", marital_status == "Never married") %>%
+  summarise(mean_age = mean(RIDAGEYR, na.rm = TRUE))
+print(avg_age_never_married_male)
+
+#Average BMI for males
+avg_bmi_male <- analysis %>%
+  filter(gender == "Male") %>%
+  summarise(mean_bmi = mean(BMXBMI, na.rm = TRUE))
+print(avg_bmi_male)
+
+fig1 <- ggplot(analysis, aes(x = race, y = sysbp, fill = marital_status)) +
+  geom_boxplot() +
+  labs(
+    x = "Race/Ethnicity",
+    y = "Systolic Blood Pressure",
+    fill = "Marital Status",
+    title = "Systolic BP by Race and Marital Status"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+fig1
+
+fig2 <- ggplot(analysis, aes(x = sysbp, y = LBXTR, color = race)) +
+  geom_point(alpha = 0.5) +
+  labs(
+    x = "Systolic BP", 
+    y = "Triglyceride (mg/dL)", 
+    fill = "Race",
+    title = "Triglyceride vs Systolic BP by Race") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+fig2
