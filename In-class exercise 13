@@ -1,0 +1,54 @@
+library(haven)
+library(dplyr)
+library(gtsummary)
+library(ggplot2)
+
+demo <- read_xpt("Datasets/P_DEMO.xpt")
+bpxo <- read_xpt("Datasets/P_BPXO.xpt")
+
+analysis <- inner_join(demo, bpxo, by="SEQN") %>%
+  mutate(
+    race_fct = factor(RIDRETH1, levels = c(1,2,3,4,5),
+                      labels = c("Mexican American",
+                                 "White Hospanic",
+                                 "Non-Hispanic White",
+                                 "Non-Hispanic Black",
+                                 "Other Race/Multi")
+    ),
+    mar_fct = factor(DMDMARTZ,
+                     levels = c(1,2,3,77,99),
+                     labels = c("Married",
+                              "Widowed/Divorced",
+                              "Never married",
+                              "Refused",
+                              "Refused"
+                              )
+                     ),
+    sysbp = rowMeans(cbind(BPXOSY1, BPXOSY2, BPXOSY3), na.rm = TRUE),
+    diabp = rowMeans(cbind(BPXOSY1, BPXOSY2, BPXOSY3), na.rm = TRUE)
+  ) %>%
+select(SEQN, RIDAGEYR, RIAGENDR, race_fct, mar_fct, sysbp, diabp)
+
+t_demo <- tbl_summary(
+  analysis,
+  by = RIAGENDR,
+  include = c(RIDAGEYR, race_fct, mar_fct, sysbp, diabp)
+)
+
+t_demo
+
+df_f1 <- analysis %>%
+  mutate(
+    gender_fct = factor(RIAGENDR)
+  )%>%
+  group_by(RIAGENDR, mar_fct) %>%
+  summarise(
+    ave_age = mean(RIDAGEYR, na.rm = TRUE)
+  )
+
+fig1 <- ggplot(data = df_f1) +
+  geom_bar(aes(x=mar_fct, y=ave_age, fill = RIAGENDR),
+           stat = "identity", position = "dodge") +
+  coord_flip()
+fig1
+
